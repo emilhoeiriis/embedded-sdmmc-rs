@@ -9,7 +9,6 @@ use crate::{
 };
 use byteorder::{ByteOrder, LittleEndian};
 use core::convert::TryFrom;
-use log::{debug, trace, warn};
 
 /// Number of entries reserved at the start of a File Allocation Table
 pub const RESERVED_ENTRIES: u32 = 2;
@@ -25,6 +24,7 @@ pub enum FatType {
 
 /// Indentifies the supported types of FAT format
 #[derive(Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FatSpecificInfo {
     /// Fat16 Format
     Fat16(Fat16Info),
@@ -34,6 +34,7 @@ pub enum FatSpecificInfo {
 
 /// FAT32 specific data
 #[derive(Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Fat32Info {
     /// The root directory does not have a reserved area in FAT32. This is the
     /// cluster it starts in (nominally 2).
@@ -44,6 +45,7 @@ pub struct Fat32Info {
 
 /// FAT16 specific data
 #[derive(Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Fat16Info {
     /// The block the root directory starts in. Relative to start of partition (so add `self.lba_offset` before passing to controller)
     pub(crate) first_root_dir_block: BlockCount,
@@ -53,6 +55,7 @@ pub struct Fat16Info {
 
 /// The name given to a particular FAT formatted volume.
 #[derive(PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct VolumeName {
     data: [u8; 11],
 }
@@ -66,6 +69,7 @@ impl VolumeName {
 
 /// Identifies a FAT16 Volume on the disk.
 #[derive(PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FatVolume {
     /// The block number of the start of the partition. All other BlockIdx values are relative to this.
     pub(crate) lba_start: BlockIdx,
@@ -564,7 +568,7 @@ impl FatVolume {
     /// Look in the FAT to see which cluster comes next.
     pub(crate) async fn next_cluster<D, T>(
         &self,
-        controller: &Controller<D, T>,
+        controller: &mut Controller<D, T>,
         cluster: Cluster,
     ) -> Result<Cluster, Error<D::Error>>
     where
@@ -814,7 +818,7 @@ impl FatVolume {
     /// Useful for performing directory listings.
     pub(crate) async fn iterate_dir<D, T, F>(
         &self,
-        controller: &Controller<D, T>,
+        controller: &mut Controller<D, T>,
         dir: &Directory,
         mut func: F,
     ) -> Result<(), Error<D::Error>>
@@ -1034,19 +1038,20 @@ impl FatVolume {
         match &self.fat_specific_info {
             FatSpecificInfo::Fat16(_fat16_info) => {
                 while current_cluster.0 < end_cluster.0 {
-                    trace!(
+                    sd_log!(
+                        trace,
                         "current_cluster={:?}, end_cluster={:?}",
                         current_cluster,
                         end_cluster
                     );
                     let fat_offset = current_cluster.0 * 2;
-                    trace!("fat_offset = {:?}", fat_offset);
+                    sd_log!(trace, "fat_offset = {:?}", fat_offset);
                     let this_fat_block_num =
                         self.lba_start + self.fat_start.offset_bytes(fat_offset);
-                    trace!("this_fat_block_num = {:?}", this_fat_block_num);
+                    sd_log!(trace, "this_fat_block_num = {:?}", this_fat_block_num);
                     let mut this_fat_ent_offset = usize::try_from(fat_offset % Block::LEN_U32)
                         .map_err(|_| Error::ConversionError)?;
-                    trace!("Reading block {:?}", this_fat_block_num);
+                    sd_log!(trace, "Reading block {:?}", this_fat_block_num);
                     controller
                         .block_device
                         .read(&mut blocks, this_fat_block_num, "next_cluster")
@@ -1067,19 +1072,20 @@ impl FatVolume {
             }
             FatSpecificInfo::Fat32(_fat32_info) => {
                 while current_cluster.0 < end_cluster.0 {
-                    trace!(
+                    sd_log!(
+                        trace,
                         "current_cluster={:?}, end_cluster={:?}",
                         current_cluster,
                         end_cluster
                     );
                     let fat_offset = current_cluster.0 * 4;
-                    trace!("fat_offset = {:?}", fat_offset);
+                    sd_log!(trace, "fat_offset = {:?}", fat_offset);
                     let this_fat_block_num =
                         self.lba_start + self.fat_start.offset_bytes(fat_offset);
-                    trace!("this_fat_block_num = {:?}", this_fat_block_num);
+                    sd_log!(trace, "this_fat_block_num = {:?}", this_fat_block_num);
                     let mut this_fat_ent_offset = usize::try_from(fat_offset % Block::LEN_U32)
                         .map_err(|_| Error::ConversionError)?;
-                    trace!("Reading block {:?}", this_fat_block_num);
+                    sd_log!(trace, "Reading block {:?}", this_fat_block_num);
                     controller
                         .block_device
                         .read(&mut blocks, this_fat_block_num, "next_cluster")
@@ -1099,7 +1105,7 @@ impl FatVolume {
                 }
             }
         }
-        warn!("Out of space...");
+        sd_log!(debug, "Out of space...");
         Err(Error::NotEnoughSpace)
     }
 
@@ -1114,13 +1120,18 @@ impl FatVolume {
         D: BlockDevice,
         T: TimeSource,
     {
-        debug!("Allocating new cluster, prev_cluster={:?}", prev_cluster);
+        sd_log!(
+            trace,
+            "Allocating new cluster, prev_cluster={:?}",
+            prev_cluster
+        );
         let end_cluster = Cluster(self.cluster_count + RESERVED_ENTRIES);
         let start_cluster = match self.next_free_cluster {
             Some(cluster) if cluster.0 < end_cluster.0 => cluster,
             _ => Cluster(RESERVED_ENTRIES),
         };
-        trace!(
+        sd_log!(
+            trace,
             "Finding next free between {:?}..={:?}",
             start_cluster,
             end_cluster
@@ -1131,7 +1142,8 @@ impl FatVolume {
         {
             Ok(cluster) => cluster,
             Err(_) if start_cluster.0 > RESERVED_ENTRIES => {
-                debug!(
+                sd_log!(
+                    debug,
                     "Retrying, finding next free between {:?}..={:?}",
                     Cluster(RESERVED_ENTRIES),
                     end_cluster
@@ -1144,14 +1156,16 @@ impl FatVolume {
         self.update_fat(controller, new_cluster, Cluster::END_OF_FILE)
             .await?;
         if let Some(cluster) = prev_cluster {
-            trace!(
+            sd_log!(
+                trace,
                 "Updating old cluster {:?} to {:?} in FAT",
                 cluster,
                 new_cluster
             );
             self.update_fat(controller, cluster, new_cluster).await?;
         }
-        trace!(
+        sd_log!(
+            trace,
             "Finding next free between {:?}..={:?}",
             new_cluster,
             end_cluster
@@ -1172,7 +1186,7 @@ impl FatVolume {
             }
             Err(e) => return Err(e),
         };
-        debug!("Next free cluster is {:?}", self.next_free_cluster);
+        sd_log!(trace, "Next free cluster is {:?}", self.next_free_cluster);
         if let Some(ref mut number_free_cluster) = self.free_clusters_count {
             *number_free_cluster -= 1;
         };
@@ -1188,7 +1202,7 @@ impl FatVolume {
                     .map_err(Error::DeviceError)?;
             }
         }
-        debug!("All done, returning {:?}", new_cluster);
+        sd_log!(trace, "All done, returning {:?}", new_cluster);
         Ok(new_cluster)
     }
 

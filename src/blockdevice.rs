@@ -10,6 +10,7 @@ use core::future::Future;
 /// This library does not support devices with a block size other than 512
 /// bytes.
 #[derive(Clone)]
+#[repr(align(4))]
 pub struct Block {
     /// The 512 bytes in this block (or sector).
     pub contents: [u8; Block::LEN],
@@ -19,11 +20,13 @@ pub struct Block {
 /// block on a disk gets `BlockIdx(0)` (which usually contains the Master Boot
 /// Record).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct BlockIdx(pub u32);
 
 /// Represents the a number of blocks (or sectors). Add this to a `BlockIdx`
 /// to get an actual address on disk.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct BlockCount(pub u32);
 
 /// An iterator returned from `Block::range`.
@@ -50,15 +53,18 @@ pub trait BlockDevice {
 
     /// Read one or more blocks, starting at the given block index.
     fn read<'a>(
-        &'a self,
+        &'a mut self,
         blocks: &'a mut [Block],
         start_block_idx: BlockIdx,
         reason: &str,
     ) -> Self::ReadFuture<'a>;
 
     /// Write one or more blocks, starting at the given block index.
-    fn write<'a>(&'a self, blocks: &'a [Block], start_block_idx: BlockIdx)
-        -> Self::WriteFuture<'a>;
+    fn write<'a>(
+        &'a mut self,
+        blocks: &'a [Block],
+        start_block_idx: BlockIdx,
+    ) -> Self::WriteFuture<'a>;
 
     /// Determine how many blocks this device can hold.
     fn num_blocks(&self) -> Result<BlockCount, Self::Error>;

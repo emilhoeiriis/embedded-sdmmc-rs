@@ -33,11 +33,13 @@ pub trait TimeSource {
 
 /// Represents a cluster on disk.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Cluster(pub(crate) u32);
 
 /// Represents a directory entry, which tells you about
 /// other files and directories.
 #[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DirEntry {
     /// The name of the file
     pub name: ShortFileName,
@@ -60,6 +62,7 @@ pub struct DirEntry {
 /// An MS-DOS 8.3 filename. 7-bit ASCII only. All lower-case is converted to
 /// upper-case by default.
 #[derive(PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ShortFileName {
     pub(crate) contents: [u8; 11],
 }
@@ -68,6 +71,7 @@ pub struct ShortFileName {
 /// replacing this with POSIX time as a `u32`, which would save two bytes at
 /// the expense of some maths.
 #[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Timestamp {
     /// Add 1970 to this file to get the calendar year
     pub year_since_1970: u8,
@@ -86,10 +90,12 @@ pub struct Timestamp {
 /// Indicates whether a directory entry is read-only, a directory, a volume
 /// label, etc.
 #[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Attributes(pub(crate) u8);
 
 /// Represents an open file on disk.
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct File {
     /// The starting point of the file.
     pub(crate) starting_cluster: Cluster,
@@ -116,6 +122,7 @@ pub struct Directory {
 
 /// The different ways we can open a file.
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Mode {
     /// Open a file for reading, if it exists.
     ReadOnly,
@@ -133,6 +140,7 @@ pub enum Mode {
 
 /// Various filename related errors that can occur.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FilenameError {
     /// Tried to create a file with an invalid character.
     InvalidCharacter,
